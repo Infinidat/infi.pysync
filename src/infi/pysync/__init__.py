@@ -34,7 +34,7 @@ from watchdog.observers import Observer
 from watchdog.events import (FileSystemEventHandler,
                              EVENT_TYPE_MODIFIED, EVENT_TYPE_MOVED, EVENT_TYPE_CREATED, EVENT_TYPE_DELETED)
 from watchdog.utils import has_attribute
-from Queue import Queue
+from Queue import Queue, Empty
 from threading import Thread
 
 from .pathmatch import find_matching_pattern
@@ -66,39 +66,54 @@ class SyncWorker(Thread):
         self.queue.put(None)
 
     def run(self):
-        batch_start_time = time.time()
-        batch = []
-        while True:
-            event = self.queue.get()
-            self.queue.task_done()
-            now = time.time()
-            if not event:
-                break
-            batch.append(event)
-            if (now - batch_start_time) >= self.batch_interval:
-                batch_start_time = now
-                old_batch = batch
-                self._handle_batch(old_batch)
-                batch = []
+        try:
+            batch_start_time = time.time()
+            batch = []
+            shutdown = False
+            while not shutdown:
+                event = None
+                try:
+                    wait_time = max(0, batch_start_time + self.batch_interval - time.time())
+                    event = self.queue.get(timeout=wait_time)
+                    self.queue.task_done()
+                    if not event:
+                        shutdown = True
+                except Empty:
+                    pass
+
+                now = time.time()
+                if event:
+                    batch.append(event)
+                if (now - batch_start_time) >= self.batch_interval or shutdown:
+                    if batch:
+                        self._handle_batch(batch)
+                    batch_start_time = now
+                    batch = []
+        except:
+            import traceback
+            traceback.print_exc()
 
     def _handle_batch(self, batch):
         paths_synced = set()
         for event in batch:
             if event.event_type == EVENT_TYPE_DELETED:
-                sftp.rm_rf(self._to_target_path(event.src_path))
+                self.sftp.rm_rf(self._to_target_path(event.src_path))
                 if event.src_path in paths_synced:
                     paths_synced.remove(event.src_path)
                 self._remove_pyc_file_if_needed(event.src_path)
             elif event.event_type in (EVENT_TYPE_MODIFIED, EVENT_TYPE_CREATED) and not event.src_path in paths_synced:
-                sftp.put(event.src_path, self._to_target_path(event.src_path))
-                paths_synced.add(event.src_path)
-                self._remove_pyc_file_if_needed(event.src_path)
+                if os.path.exists(event.src_path):
+                    self.sftp.put(event.src_path, self._to_target_path(event.src_path))
+                    paths_synced.add(event.src_path)
+                    self._remove_pyc_file_if_needed(event.src_path)
+                else:
+                    vprint("not syncing {}, already deleted in source.", event.src_path)
             elif event.event_type == EVENT_TYPE_MOVED:
                 if event.src_path in paths_synced:
                     paths_synced.remove(event.src_path)
                 if event.dest_path in paths_synced:
                     paths_synced.remove(event.dest_path)
-                sftp.rename(self._to_target_path(event.src_path), self._to_target_path(event.dest_path))
+                self.sftp.rename(self._to_target_path(event.src_path), self._to_target_path(event.dest_path))
                 self._remove_pyc_file_if_needed(event.src_path)
                 self._remove_pyc_file_if_needed(event.dest_path)
 
@@ -106,7 +121,7 @@ class SyncWorker(Thread):
         fname = os.path.basename(path)
         if python_mode and fnmatch(fname, "*.py"):
             vprint("removing .pyc since {} was deleted", path)
-            sftp.rm_rf(self._to_target_path(path + "c"))
+            self.sftp.rm_rf(self._to_target_path(path + "c"))
 
     def _to_target_path(self, path):
         return _convert_path(self.source_base_path, self.target_base_path, path)
@@ -262,8 +277,9 @@ def watch_for_changes(sftp, source_base_path, remote_base_path, batch_interval):
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        observer.stop()
+        print("caught keyboard interrupt, stopping.")
         worker.stop()
+        observer.stop()
     observer.join()
     worker.join()
 
