@@ -25,6 +25,7 @@ Options:
   TARGET             A scp-like path: [user@]host[:port][:path]
 """
 import os
+import sys
 import errno
 import time
 import stat
