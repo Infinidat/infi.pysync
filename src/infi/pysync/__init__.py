@@ -284,9 +284,9 @@ def watch_for_changes(sftp, source_base_path, remote_base_path, batch_interval):
     worker.join()
 
 
-def main():
+def main(argv=sys.argv[1:]):
     global verbose, python_mode, dry_run, source_ignore_patterns, target_ignore_patterns
-    args = docopt(__doc__)
+    args = docopt(__doc__, argv=argv)
     source_path = args["SOURCE"] if args["SOURCE"] else "."
     target_path = args["TARGET"]
     verbose = args["--verbose"]
