@@ -166,14 +166,14 @@ class SyncHandler(FileSystemEventHandler):
 
 def _sync_file(sftp, source_path, source_stat, remote_path):
     local_size = source_stat.st_size
+    local_time = int(source_stat.st_mtime)
     remote_stat = sftp.stat_or_none(remote_path)
     if remote_stat and not stat.S_ISREG(remote_stat.st_mode):
         raise Exception("remote path {} should be a regular file, but it's not.".format(remote_path))
     remote_size = remote_stat.st_size if remote_stat else None
+    remote_time = int(remote_stat.st_mtime) if remote_stat else None
 
     size_diff = local_size != remote_size if compare_by_size else False
-    local_time = int(source_stat.st_mtime)
-    remote_time = int(remote_stat.st_mtime)
     time_diff = local_time != remote_time if compare_by_mtime else False
 
     vprint("sync_file comparison for {} -> {}: size={} ({} <=> {}) time={} ({} <=> {})".format(source_path, remote_path,
