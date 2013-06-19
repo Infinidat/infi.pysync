@@ -22,6 +22,11 @@ Options:
                                      Same rules as -s.
   -b INTERVAL --batch-interval=INTERVAL  Interval in seconds to sync [default: 1]
 
+Options you probably don't want to use:
+  --no-preserve-time                 Don't sync mtime/atime (default: False)
+  --size-only                        Sync by size only (default: False)
+  --mtime-only                       Sync by modification time only (default: False)
+
   TARGET             A scp-like path: [user@]host[:port][:path]
 """
 import os
@@ -46,6 +51,8 @@ dry_run = False
 source_ignore_patterns = [".git", "conf"]
 target_ignore_patterns = ["bin", "eggs", "develop-eggs", "parts", "**/__version__.py*", ".cache"]
 python_mode = False
+compare_by_size = True
+compare_by_mtime = True
 
 
 def vprint(msg, *args, **kwargs):
@@ -164,8 +171,15 @@ def _sync_file(sftp, source_path, source_stat, remote_path):
         raise Exception("remote path {} should be a regular file, but it's not.".format(remote_path))
     remote_size = remote_stat.st_size if remote_stat else None
 
-    # FIXME this is compare-by-size and not by modification time
-    if local_size != remote_size:
+    size_diff = local_size != remote_size if compare_by_size else False
+    local_time = int(source_stat.st_mtime)
+    remote_time = int(remote_stat.st_mtime)
+    time_diff = local_time != remote_time if compare_by_mtime else False
+
+    vprint("sync_file comparison for {} -> {}: size={} ({} <=> {}) time={} ({} <=> {})".format(source_path, remote_path,
+           size_diff if compare_by_size else "<unused>", local_size, remote_size,
+           time_diff if compare_by_mtime else "<unused>", local_time, remote_time))
+    if size_diff or time_diff:
         sftp.put(source_path, remote_path)
 
         if python_mode and source_path.endswith(".py"):
@@ -286,7 +300,7 @@ def watch_for_changes(sftp, source_base_path, remote_base_path, batch_interval):
 
 
 def main(argv=sys.argv[1:]):
-    global verbose, python_mode, dry_run, source_ignore_patterns, target_ignore_patterns
+    global verbose, python_mode, dry_run, source_ignore_patterns, target_ignore_patterns, compare_by_mtime, compare_by_size
     args = docopt(__doc__, argv=argv)
     source_path = args["SOURCE"] if args["SOURCE"] else "."
     target_path = args["TARGET"]
@@ -304,8 +318,11 @@ def main(argv=sys.argv[1:]):
     elif not isinstance(target_ignore_patterns, (list, tuple)):
         target_ignore_patterns = [target_ignore_patterns]
     sync_interval = float(args['--batch-interval'])
+    compare_by_mtime = not args['--size-only']
+    compare_by_size = not args['--mtime-only']
 
-    sftp = SyncSFTPClient.create_sftp_connection(target_path, dry_run, logger_func=vprint)
+    sftp = SyncSFTPClient.create_sftp_connection(target_path, dry_run, not args['--no-preserve-time'],
+                                                 logger_func=vprint)
     remote_path = sftp.remote_path()
 
     vprint("source path: {}", source_path)

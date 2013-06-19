@@ -12,7 +12,7 @@ def _null_logger(*args):
 
 
 class SyncSFTPClient(paramiko.SFTPClient):
-    def __init__(self, user, host, port, path, dry_run, logger_func=_null_logger):
+    def __init__(self, user, host, port, path, dry_run, preserve_time=True, logger_func=_null_logger):
         self.user = user
         self.host = host
         self.port = port
@@ -21,6 +21,7 @@ class SyncSFTPClient(paramiko.SFTPClient):
         self.id_files = []
         self.password = None
         self.dry_run = dry_run
+        self.preserve_time = preserve_time
         self.logger_func = logger_func
 
         if not self.path:
@@ -71,7 +72,10 @@ class SyncSFTPClient(paramiko.SFTPClient):
     def put(self, src, dst):
         self.logger_func("cp {} remote:{}", src, dst)
         if not self.dry_run:
-            return super(SyncSFTPClient, self).put(src, dst)
+            src_stat = os.lstat(src)
+            super(SyncSFTPClient, self).put(src, dst)
+            if self.preserve_time:
+                self.utime(dst, (src_stat.st_atime, src_stat.st_mtime))
 
     def mkdir_if_not_exist(self, path):
         try:
@@ -210,8 +214,8 @@ class SyncSFTPClient(paramiko.SFTPClient):
         return (user, host, port, path)
 
     @classmethod
-    def create_sftp_connection(cls, target, dry_run=False, logger_func=_null_logger):
+    def create_sftp_connection(cls, target, dry_run=False, preserve_time=True, logger_func=_null_logger):
         global verbose
 
         user, host, port, path = cls._parse_target(target)
-        return SyncSFTPClient(user, host, port, path, dry_run, logger_func)
+        return SyncSFTPClient(user, host, port, path, dry_run, preserve_time, logger_func)
