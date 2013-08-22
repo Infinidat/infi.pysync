@@ -53,3 +53,4 @@ tmp*
 buildout.in
 
 src/infi/pysync/__version__.py
+bootstrap.py
