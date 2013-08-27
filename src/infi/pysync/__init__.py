@@ -321,9 +321,20 @@ def main(argv=sys.argv[1:]):
     compare_by_mtime = not args['--size-only']
     compare_by_size = not args['--mtime-only']
 
+    if not os.path.exists(source_path):
+        sys.stderr.write("error: source path {} does not exist, aborting.\n".format(source_path))
+        sys.exit(2)
+
     sftp = SyncSFTPClient.create_sftp_connection(target_path, dry_run, not args['--no-preserve-time'],
                                                  logger_func=vprint)
-    remote_path = sftp.remote_path()
+    try:
+        remote_path = sftp.remote_path()
+    except (OSError, IOError), e:
+        if e.errno == errno.ENOENT:
+            sys.stderr.write("error: target path {} does not exist, aborting.\n".format(sftp.path))
+            sys.exit(2)
+        else:
+            raise
 
     vprint("source path: {}", source_path)
     vprint("remote path: {}", remote_path)
