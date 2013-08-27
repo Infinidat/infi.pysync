@@ -21,6 +21,7 @@ Options:
   -t PATTERN --skip-target=PATTERN   Don't remove objects matching PATTERN from TARGET when they don't exist in SOURCE.
                                      Same rules as -s.
   -b INTERVAL --batch-interval=INTERVAL  Interval in seconds to sync [default: 1]
+  -i IDENTITY --identity=IDENTITY    SSH identity file to use when authenticating remote host
 
 Options you probably don't want to use:
   --no-preserve-time                 Don't sync mtime/atime (default: False)
@@ -321,9 +322,24 @@ def main(argv=sys.argv[1:]):
     compare_by_mtime = not args['--size-only']
     compare_by_size = not args['--mtime-only']
 
+    if not os.path.exists(source_path):
+        sys.stderr.write("error: source path {} does not exist, aborting.\n".format(source_path))
+        sys.exit(2)
+
+    if not os.path.isdir(source_path):
+        sys.stderr.write("error: source path {} is not a directory, aborting.\n".format(source_path))
+        sys.exit(2)
+
     sftp = SyncSFTPClient.create_sftp_connection(target_path, dry_run, not args['--no-preserve-time'],
-                                                 logger_func=vprint)
-    remote_path = sftp.remote_path()
+                                                 identity_file=args['--identity'], logger_func=vprint)
+    try:
+        remote_path = sftp.remote_path()
+    except (OSError, IOError), e:
+        if e.errno == errno.ENOENT:
+            sys.stderr.write("error: target path {} does not exist, aborting.\n".format(sftp.path))
+            sys.exit(2)
+        else:
+            raise
 
     vprint("source path: {}", source_path)
     vprint("remote path: {}", remote_path)
