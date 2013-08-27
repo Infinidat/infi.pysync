@@ -12,13 +12,14 @@ def _null_logger(*args):
 
 
 class SyncSFTPClient(paramiko.SFTPClient):
-    def __init__(self, user, host, port, path, dry_run, preserve_time=True, logger_func=_null_logger):
+    def __init__(self, user, host, port, path, dry_run, preserve_time=True, identity_file=None, 
+                 logger_func=_null_logger):
         self.user = user
         self.host = host
         self.port = port
         self.path = path
         self.known_hosts = None
-        self.id_files = []
+        self.id_files = [] if not identity_file else [identity_file]
         self.password = None
         self.dry_run = dry_run
         self.preserve_time = preserve_time
@@ -214,8 +215,9 @@ class SyncSFTPClient(paramiko.SFTPClient):
         return (user, host, port, path)
 
     @classmethod
-    def create_sftp_connection(cls, target, dry_run=False, preserve_time=True, logger_func=_null_logger):
+    def create_sftp_connection(cls, target, dry_run=False, preserve_time=True, identity_file=None,
+                               logger_func=_null_logger):
         global verbose
 
         user, host, port, path = cls._parse_target(target)
-        return SyncSFTPClient(user, host, port, path, dry_run, preserve_time, logger_func)
+        return SyncSFTPClient(user, host, port, path, dry_run, preserve_time, identity_file, logger_func)
