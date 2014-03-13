@@ -17,8 +17,8 @@ After building it (see below how to use infi.projector) just run pysync --help t
 
 Checking out the code
 =====================
-Run the following commands:
+
+Run the following:
 
     easy_install -U infi.projector
     projector devenv build
-
