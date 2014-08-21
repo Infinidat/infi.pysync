@@ -25,8 +25,10 @@ Options:
 
 Options you probably don't want to use:
   --no-preserve-time                 Don't sync mtime/atime (default: False)
+  --no-preserve-permissions          Don't sync st_mode (default: False)
   --size-only                        Sync by size only (default: False)
   --mtime-only                       Sync by modification time only (default: False)
+  --perm-only                        Sync by permissions only (default: False)
 
   TARGET             A scp-like path: [user@]host[:port][:path]
 """
@@ -54,6 +56,7 @@ target_ignore_patterns = ["bin", "eggs", "develop-eggs", "parts", "**/__version_
 python_mode = False
 compare_by_size = True
 compare_by_mtime = True
+compare_by_perm = True
 
 
 def vprint(msg, *args, **kwargs):
@@ -168,19 +171,23 @@ class SyncHandler(FileSystemEventHandler):
 def _sync_file(sftp, source_path, source_stat, remote_path):
     local_size = source_stat.st_size
     local_time = int(source_stat.st_mtime)
+    local_perm = source_stat[stat.ST_MODE]
     remote_stat = sftp.stat_or_none(remote_path)
     if remote_stat and not stat.S_ISREG(remote_stat.st_mode):
         raise Exception("remote path {} should be a regular file, but it's not.".format(remote_path))
     remote_size = remote_stat.st_size if remote_stat else None
     remote_time = int(remote_stat.st_mtime) if remote_stat else None
+    remote_perm = remote_stat.st_mode if remote_stat else None
 
     size_diff = local_size != remote_size if compare_by_size else False
     time_diff = local_time != remote_time if compare_by_mtime else False
+    perm_diff = local_perm != remote_perm if compare_by_perm else False
 
     vprint("sync_file comparison for {} -> {}: size={} ({} <=> {}) time={} ({} <=> {})".format(source_path, remote_path,
            size_diff if compare_by_size else "<unused>", local_size, remote_size,
-           time_diff if compare_by_mtime else "<unused>", local_time, remote_time))
-    if size_diff or time_diff:
+           time_diff if compare_by_mtime else "<unused>", local_time, remote_time,
+           perm_diff if compare_by_perm else "<unused>", local_perm, remote_perm))
+    if size_diff or time_diff or perm_diff:
         sftp.put(source_path, remote_path)
 
         if python_mode and source_path.endswith(".py"):
@@ -321,6 +328,7 @@ def main(argv=sys.argv[1:]):
     sync_interval = float(args['--batch-interval'])
     compare_by_mtime = not args['--size-only']
     compare_by_size = not args['--mtime-only']
+    compare_by_perm = not args['--perm-only']
 
     if not os.path.exists(source_path):
         sys.stderr.write("error: source path {} does not exist, aborting.\n".format(source_path))
@@ -331,7 +339,8 @@ def main(argv=sys.argv[1:]):
         sys.exit(2)
 
     sftp = SyncSFTPClient.create_sftp_connection(target_path, dry_run, not args['--no-preserve-time'],
-                                                 identity_file=args['--identity'], logger_func=vprint)
+                                                 identity_file=args['--identity'], logger_func=vprint,
+                                                 preserve_permissions=not args['--no-preserve-permissions'])
     try:
         remote_path = sftp.remote_path()
     except (OSError, IOError), e:
