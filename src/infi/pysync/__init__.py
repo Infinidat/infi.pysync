@@ -57,6 +57,34 @@ python_mode = False
 compare_by_size = True
 compare_by_mtime = True
 compare_by_perm = True
+remote_os = None
+
+
+def import_path(sftp):
+    import re
+    normpath = sftp.normalize('.')
+    global remote_os, rpath
+    if normpath.startswith('/'):
+        import posixpath as rpath
+        remote_os = 'linux'
+        replace_tup = ('\\', '/')
+    elif re.match('^\\w:', normpath):
+        import ntpath as rpath
+        remote_os = 'win'
+        replace_tup = ('/', '\\')
+    else:
+        from os import path as rpath
+        remote_os = 'linux'
+        replace_tup = ('\\', '/')
+
+    def decorator(f):
+        def wrapped(*args, **kwargs):
+            result = f(*args, **kwargs)
+            return result.replace(*replace_tup)
+        return wrapped
+    rpath.join = decorator(rpath.join)
+    rpath.relpath = decorator(rpath.relpath)
+    rpath.normpath = decorator(rpath.normpath)
 
 
 def vprint(msg, *args, **kwargs):
@@ -113,7 +141,10 @@ class SyncWorker(Thread):
                 if event.src_path in paths_synced:
                     paths_synced.remove(event.src_path)
                 self._remove_pyc_file_if_needed(event.src_path)
-            elif event.event_type in (EVENT_TYPE_MODIFIED, EVENT_TYPE_CREATED) and not event.src_path in paths_synced:
+            elif event.event_type == EVENT_TYPE_CREATED and event.is_directory:
+                self.sftp.mkdir(self._to_target_path(event.src_path))
+                paths_synced.add(event.src_path)
+            elif event.event_type in (EVENT_TYPE_MODIFIED, EVENT_TYPE_CREATED) and not event.src_path in paths_synced and not event.is_directory:
                 if os.path.exists(event.src_path):
                     self.sftp.put(event.src_path, self._to_target_path(event.src_path))
                     paths_synced.add(event.src_path)
@@ -197,9 +228,10 @@ def _sync_file(sftp, source_path, source_stat, remote_path):
                 sftp.rm_rf(remote_pyc)
 
 
-def filtered_walk(path, ignore_patterns=[], listdir_func=os.listdir, stat_func=os.lstat,
+def filtered_walk(path, ignore_patterns=None, listdir_func=os.listdir, stat_func=os.lstat,
                   listdir_attr_func=None, compare_path=""):
-    path = os.path.normpath(path)
+    ignore_patterns = ignore_patterns or []
+    path = rpath.normpath(path)
     base_path = os.path.relpath(path, compare_path) if compare_path else path
 
     entries = []
@@ -232,12 +264,23 @@ def filtered_walk(path, ignore_patterns=[], listdir_func=os.listdir, stat_func=o
             for result in filtered_walk(os.path.join(path, d), ignore_patterns, listdir_func, stat_func,
                                         listdir_attr_func, compare_path):
                 yield result
-        except (OSError, IOError), e:
+        except (OSError, IOError) as e:
             if e.errno != errno.ENOENT:
                 raise
 
 
 def _convert_path(from_base_path, to_base_path, path):
+    if remote_os == 'linux':
+        replace_tup = ('\\', '/')
+    else:
+        replace_tup = ('/', '\\')
+    # This should happen in the native system format
+    relpath = os.path.relpath(path, start=from_base_path).replace(*replace_tup)
+    # This should be processed as the target path system
+    return rpath.normpath(rpath.join(to_base_path, relpath))
+
+
+def _local_convert_path(from_base_path, to_base_path, path):
     relpath = os.path.relpath(path, start=from_base_path)
     return os.path.normpath(os.path.join(to_base_path, relpath))
 
@@ -250,33 +293,35 @@ def _add_source_to_target(sftp, source_base_path, remote_base_path):
         sftp.mkdir_if_not_exist(remote_dirpath)
 
         for dirname in [k for k, s in entry_to_stat.items() if stat.S_ISDIR(s.st_mode)]:
-            sftp.mkdir_if_not_exist(os.path.join(remote_dirpath, dirname))
+            sftp.mkdir_if_not_exist(rpath.join(remote_dirpath, dirname))
 
         for fname, f_stat in [(f, s) for f, s in entry_to_stat.items() if stat.S_ISREG(s.st_mode)]:
             if not python_mode or not fnmatch(fname, '*.pyc'):
-                _sync_file(sftp, os.path.join(dirpath, fname), f_stat, os.path.join(remote_dirpath, fname))
+                remote_path = rpath.join(remote_dirpath, fname)
+                _sync_file(sftp, os.path.join(dirpath, fname), f_stat, remote_path)
 
 
 def _remove_target_when_missing_source(sftp, source_base_path, remote_base_path):
     for (dirpath, entry_to_stat) in filtered_walk(remote_base_path, ignore_patterns=target_ignore_patterns,
                                                   listdir_attr_func=sftp.listdir_attr, stat_func=sftp.stat,
                                                   compare_path=remote_base_path):
-        src_dirpath = _convert_path(remote_base_path, source_base_path, dirpath)
+        src_dirpath = _local_convert_path(remote_base_path, source_base_path, dirpath)
+        dst_dirpath = _convert_path(remote_base_path, source_base_path, dirpath)
         if not os.path.exists(src_dirpath):
-            sftp.rm_rf(dirpath)
+            sftp.rm_rf(dst_dirpath)
         else:
             for dirname in [k for k, s in entry_to_stat.items() if stat.S_ISDIR(s.st_mode)]:
                 if not os.path.exists(os.path.join(src_dirpath, dirname)):
-                    sftp.rm_rf(os.path.join(dirpath, dirname))
+                    sftp.rm_rf(rpath.join(dirpath, dirname))
 
             for fname, f_stat in [(f, s) for f, s in entry_to_stat.items() if stat.S_ISREG(s.st_mode)]:
                 if python_mode and fnmatch(fname, '*.pyc'):
                     # Make sure there's a .py file in the source.
                     if not os.path.exists(os.path.join(src_dirpath, fname[:-1])):
                         vprint("removing {} file due to non-existent {} file", fname, fname[:-1])
-                        sftp.remove(os.path.join(dirpath, fname))
+                        sftp.remove(rpath.join(dirpath, fname))
                 elif not os.path.exists(os.path.join(src_dirpath, fname)):
-                    sftp.remove(os.path.join(dirpath, fname))
+                    sftp.remove(rpath.join(dirpath, fname))
 
 
 def initial_sync(sftp, source_base_path, remote_base_path):
@@ -341,9 +386,10 @@ def main(argv=sys.argv[1:]):
     sftp = SyncSFTPClient.create_sftp_connection(target_path, dry_run, not args['--no-preserve-time'],
                                                  identity_file=args['--identity'], logger_func=vprint,
                                                  preserve_permissions=not args['--no-preserve-permissions'])
+    import_path(sftp)
     try:
         remote_path = sftp.remote_path()
-    except (OSError, IOError), e:
+    except (OSError, IOError) as e:
         if e.errno == errno.ENOENT:
             sys.stderr.write("error: target path {} does not exist, aborting.\n".format(sftp.path))
             sys.exit(2)
