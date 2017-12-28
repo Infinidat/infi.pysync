@@ -57,34 +57,37 @@ python_mode = False
 compare_by_size = True
 compare_by_mtime = True
 compare_by_perm = True
-remote_os = None
+rpath = None
 
 
 def import_path(sftp):
     import re
     normpath = sftp.normalize('.')
-    global remote_os, rpath
-    if normpath.startswith('/'):
-        import posixpath as rpath
-        remote_os = 'linux'
-        replace_tup = ('\\', '/')
-    elif re.match('^\\w:', normpath):
+    if re.match('^\\w:', normpath):
         import ntpath as rpath
-        remote_os = 'win'
         replace_tup = ('/', '\\')
+    elif normpath.startswith('/'):
+        import posixpath as rpath
+        replace_tup = ('\\', '/')
     else:
         from os import path as rpath
-        remote_os = 'linux'
         replace_tup = ('\\', '/')
+
+    def fix_path(s):
+        if isinstance(s, str):
+            s = s.replace(*replace_tup)
+        return s
 
     def decorator(f):
         def wrapped(*args, **kwargs):
-            result = f(*args, **kwargs)
-            return result.replace(*replace_tup)
+            return fix_path(f(*args, **kwargs))
         return wrapped
+
+    rpath.fix_path = fix_path
     rpath.join = decorator(rpath.join)
     rpath.relpath = decorator(rpath.relpath)
     rpath.normpath = decorator(rpath.normpath)
+    return rpath
 
 
 def vprint(msg, *args, **kwargs):
@@ -270,12 +273,8 @@ def filtered_walk(path, ignore_patterns=None, listdir_func=os.listdir, stat_func
 
 
 def _convert_path(from_base_path, to_base_path, path):
-    if remote_os == 'linux':
-        replace_tup = ('\\', '/')
-    else:
-        replace_tup = ('/', '\\')
     # This should happen in the native system format
-    relpath = os.path.relpath(path, start=from_base_path).replace(*replace_tup)
+    relpath = rpath.fix_path(os.path.relpath(path, start=from_base_path))
     # This should be processed as the target path system
     return rpath.normpath(rpath.join(to_base_path, relpath))
 
@@ -353,7 +352,7 @@ def watch_for_changes(sftp, source_base_path, remote_base_path, batch_interval):
 
 
 def main(argv=sys.argv[1:]):
-    global verbose, python_mode, dry_run, source_ignore_patterns, target_ignore_patterns, compare_by_mtime, compare_by_size
+    global verbose, python_mode, dry_run, source_ignore_patterns, target_ignore_patterns, compare_by_mtime, compare_by_size, rpath
     args = docopt(__doc__, argv=argv)
     source_path = args["SOURCE"] if args["SOURCE"] else "."
     target_path = args["TARGET"]
@@ -386,7 +385,7 @@ def main(argv=sys.argv[1:]):
     sftp = SyncSFTPClient.create_sftp_connection(target_path, dry_run, not args['--no-preserve-time'],
                                                  identity_file=args['--identity'], logger_func=vprint,
                                                  preserve_permissions=not args['--no-preserve-permissions'])
-    import_path(sftp)
+    rpath = import_path(sftp)
     try:
         remote_path = sftp.remote_path()
     except (OSError, IOError) as e:
