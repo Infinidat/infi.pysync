@@ -59,7 +59,7 @@ class SyncSFTPClient(paramiko.SFTPClient):
 
         if path.startswith("~"):
             path = path.replace("~", remote_homedir, 1)
-        return self.normalize(os.path.normpath(path))
+        return self.normalize(path)
 
     def remove(self, path):
         self.logger_func("rm remote:{}", path)
