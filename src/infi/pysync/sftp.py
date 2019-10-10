@@ -1,3 +1,4 @@
+from __future__ import print_function
 import os
 import re
 import stat
@@ -5,6 +6,11 @@ import errno
 import paramiko
 import getpass
 from contextlib import closing
+
+try:
+    input = raw_input
+except NameError:
+    pass
 
 
 def _null_logger(*args):
@@ -33,7 +39,7 @@ class SyncSFTPClient(paramiko.SFTPClient):
         self._parse_ssh_config()
         if not self.user:
             default_user = getpass.getuser()
-            self.user = raw_input('Username [{}]: '.format(default_user))
+            self.user = input('Username [{}]: '.format(default_user))
             if not self.user:
                 self.user = default_user
 
@@ -87,7 +93,7 @@ class SyncSFTPClient(paramiko.SFTPClient):
             remote_stat = self.stat(path)
             if not stat.S_ISDIR(remote_stat.st_mode):
                 raise Exception("remote path {} should be a directory, but it's not.".format(path))
-        except IOError, e:
+        except IOError as e:
             if e.errno == errno.ENOENT:
                 self.mkdir(path)
             else:
@@ -97,7 +103,7 @@ class SyncSFTPClient(paramiko.SFTPClient):
         try:
             self.logger_func("rm remote:{}", path)
             self.remove(path)
-        except IOError, e:
+        except IOError as e:
             if e.errno != errno.ENOENT:
                 raise
 
@@ -129,7 +135,7 @@ class SyncSFTPClient(paramiko.SFTPClient):
     def stat_or_none(self, path):
         try:
             return self.stat(path)
-        except IOError, e:
+        except IOError as e:
             if e.errno != errno.ENOENT:
                 raise
             return None
@@ -167,7 +173,7 @@ class SyncSFTPClient(paramiko.SFTPClient):
         try:
             known_host_keys = paramiko.util.load_host_keys(os.path.expanduser(self.known_hosts))
             if self.host in known_host_keys:
-                known_host_key_type = known_host_keys[self.host].keys()[0]
+                known_host_key_type = next(iter(known_host_keys[self.host]))
                 known_host_key = known_host_keys[self.host][known_host_key_type]
 
                 if known_host_key.get_name() != key.get_name() or str(known_host_key) != str(key):
