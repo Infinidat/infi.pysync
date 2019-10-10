@@ -43,7 +43,7 @@ from watchdog.observers import Observer
 from watchdog.events import (FileSystemEventHandler,
                              EVENT_TYPE_MODIFIED, EVENT_TYPE_MOVED, EVENT_TYPE_CREATED, EVENT_TYPE_DELETED)
 from watchdog.utils import has_attribute
-from Queue import Queue, Empty
+from queue import Queue, Empty
 from threading import Thread
 
 from .pathmatch import find_matching_pattern
@@ -257,7 +257,7 @@ def filtered_walk(path, ignore_patterns=None, listdir_func=os.listdir, stat_func
         _filter_entries(listdir_func(path))
         stats = [stat_func(os.path.join(path, e)) for e in entries]
 
-    entry_to_stat = dict(zip(entries, stats))
+    entry_to_stat = dict(list(zip(entries, stats)))
 
     yield (path, entry_to_stat)
 
