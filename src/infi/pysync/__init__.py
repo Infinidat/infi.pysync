@@ -257,7 +257,7 @@ def filtered_walk(path, ignore_patterns=None, listdir_func=os.listdir, stat_func
         _filter_entries(listdir_func(path))
         stats = [stat_func(os.path.join(path, e)) for e in entries]
 
-    entry_to_stat = dict(list(zip(entries, stats)))
+    entry_to_stat = dict(zip(entries, stats))
 
     yield (path, entry_to_stat)
 
