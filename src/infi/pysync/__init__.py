@@ -43,8 +43,11 @@ from watchdog.observers import Observer
 from watchdog.events import (FileSystemEventHandler,
                              EVENT_TYPE_MODIFIED, EVENT_TYPE_MOVED, EVENT_TYPE_CREATED, EVENT_TYPE_DELETED)
 from watchdog.utils import has_attribute
-from queue import Queue, Empty
 from threading import Thread
+try:
+    from queue import Queue, Empty  # py3
+except ImportError:
+    from Queue import Queue, Empty  # py2
 
 from .pathmatch import find_matching_pattern
 from .sftp import SyncSFTPClient
