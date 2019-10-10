@@ -1,3 +1,4 @@
+from __future__ import print_function
 import os
 import re
 import stat
@@ -5,7 +6,6 @@ import errno
 import paramiko
 import getpass
 from contextlib import closing
-from __future__ import print_function
 
 try:
     input = raw_input

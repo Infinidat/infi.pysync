@@ -32,6 +32,7 @@ Options you probably don't want to use:
 
   TARGET             A scp-like path: [user@]host[:port][:path]
 """
+from __future__ import print_function
 import os
 import sys
 import errno
