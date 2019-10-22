@@ -173,7 +173,6 @@ class SyncSFTPClient(paramiko.SFTPClient):
         try:
             known_host_keys = paramiko.util.load_host_keys(os.path.expanduser(self.known_hosts))
             if self.host in known_host_keys:
-                import ipdb; ipdb.set_trace()
                 known_host_key_type = next(iter(known_host_keys[self.host]))
                 known_host_key = known_host_keys[self.host][known_host_key_type]
 
