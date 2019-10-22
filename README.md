@@ -11,6 +11,8 @@ extra bells and whistles:
     - Will not copy .pyc files
     - Will remove .pyc files if the .py is removed
 
+Python 3 support is experimental
+
 Usage
 -----
 After building it (see below how to use infi.projector) just run pysync --help to see how.
